@@ -15,13 +15,24 @@ from .api_client import KlingClient, encode_jwt_token
 
 
 MODELS  = ["kling-video-o1", "kling-v3-omni"]
-MODES   = ["pro", "std"]
+MODES   = ["pro", "std", "4k"]
 RATIOS  = ["16:9", "9:16", "1:1"]
 
 _DUR      = {"default": 5, "min": 3, "max": 15, "step": 1, "display": "slider"}  # 文本/图像/首尾帧
 _DUR_VID  = {"default": 5, "min": 3, "max": 10, "step": 1, "display": "slider"}  # 视频到视频
+_DUR_SHOT = {"default": 3, "min": 1, "max": 15, "step": 1, "display": "slider"}  # 单镜头时长
 
-_T_MULTI_SHOT = "KLING_MULTI_SHOT"  # list: [{prompt}, ...]
+_T_MULTI_SHOT = "KLING_MULTI_SHOT"  # list: [{index, prompt, duration}, ...]
+
+
+def _parse_element_list(ids: str) -> list:
+    """把逗号分隔的主体 ID 字符串解析成 API 所需的列表格式。"""
+    result = []
+    for s in ids.split(","):
+        s = s.strip()
+        if s:
+            result.append({"element_id": int(s)})
+    return result
 
 
 def _client(api_token: str) -> KlingClient:
@@ -106,7 +117,6 @@ class KlingText2Video:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "模型名称": (MODELS,),
                 "提示词":   ("STRING", {"multiline": True, "default": ""}),
                 "模式":     (MODES,),
                 "时长":     ("INT", _DUR),
@@ -114,6 +124,7 @@ class KlingText2Video:
             },
             "optional": {
                 "API令牌":      ("STRING", {"default": ""}),
+                "模型名称":     (MODELS,),
                 "声音":         (["off", "on"], {"default": "off"}),
                 "多镜头":       ("BOOLEAN", {"default": False}),
                 "分镜方式":     (["intelligence", "customize"], {"default": "intelligence"}),
@@ -125,13 +136,13 @@ class KlingText2Video:
             },
         }
 
-    def run(self, 模型名称, 提示词, 模式, 时长, 画面比例,
-            API令牌="", 声音="off", 多镜头=False, 分镜方式="intelligence",
+    def run(self, 提示词, 模式, 时长, 画面比例,
+            API令牌="", 模型名称="kling-video-o1", 声音="off", 多镜头=False, 分镜方式="intelligence",
             分镜脚本=None, 添加水印=False,
             回调地址="", 自定义任务ID="", 等待超时秒=600):
 
         payload = _base(模型名称, 模式, 添加水印)
-        payload["duration"]     = 时长
+        payload["duration"]     = str(时长)
         payload["aspect_ratio"] = 画面比例
         payload["sound"]        = 声音
 
@@ -153,7 +164,8 @@ class KlingText2Video:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class KlingMultiShot:
-    """Builds the multi_prompt list for multi-shot text-to-video."""
+    """Builds the multi_prompt list for multi-shot text-to-video.
+    Each shot has its own prompt and duration; index is assigned automatically."""
     CATEGORY     = "KlingAI"
     RETURN_TYPES = (_T_MULTI_SHOT,)
     RETURN_NAMES = ("分镜脚本",)
@@ -164,19 +176,39 @@ class KlingMultiShot:
         return {
             "required": {
                 "镜头1提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头1时长":   ("INT", _DUR_SHOT),
             },
             "optional": {
                 "镜头2提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头2时长":   ("INT", _DUR_SHOT),
                 "镜头3提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头3时长":   ("INT", _DUR_SHOT),
                 "镜头4提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头4时长":   ("INT", _DUR_SHOT),
+                "镜头5提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头5时长":   ("INT", _DUR_SHOT),
+                "镜头6提示词": ("STRING", {"multiline": True, "default": ""}),
+                "镜头6时长":   ("INT", _DUR_SHOT),
             },
         }
 
-    def run(self, 镜头1提示词,
-            镜头2提示词="", 镜头3提示词="", 镜头4提示词=""):
+    def run(self, 镜头1提示词, 镜头1时长,
+            镜头2提示词="", 镜头2时长=3,
+            镜头3提示词="", 镜头3时长=3,
+            镜头4提示词="", 镜头4时长=3,
+            镜头5提示词="", 镜头5时长=3,
+            镜头6提示词="", 镜头6时长=3):
+        raw = [
+            (镜头1提示词, 镜头1时长),
+            (镜头2提示词, 镜头2时长),
+            (镜头3提示词, 镜头3时长),
+            (镜头4提示词, 镜头4时长),
+            (镜头5提示词, 镜头5时长),
+            (镜头6提示词, 镜头6时长),
+        ]
         shots = [
-            {"prompt": p.strip()}
-            for p in [镜头1提示词, 镜头2提示词, 镜头3提示词, 镜头4提示词]
+            {"index": i + 1, "prompt": p.strip(), "duration": str(d)}
+            for i, (p, d) in enumerate(raw)
             if p and p.strip()
         ]
         return (shots,)
@@ -196,7 +228,6 @@ class KlingImage2Video:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "模型名称": (MODELS,),
                 "提示词":   ("STRING", {"multiline": True, "default": "让<<<image_1>>>中的人物向镜头挥手"}),
                 "参考图1":  ("STRING", {"default": ""}),
                 "模式":     (MODES,),
@@ -205,10 +236,12 @@ class KlingImage2Video:
             },
             "optional": {
                 "API令牌":      ("STRING", {"default": ""}),
+                "模型名称":     (MODELS,),
                 "参考图2":      ("STRING", {"default": ""}),
                 "参考图3":      ("STRING", {"default": ""}),
                 "参考图4":      ("STRING", {"default": ""}),
                 "参考图5":      ("STRING", {"default": ""}),
+                "元素ID列表":   ("STRING", {"default": "", "placeholder": "123456,789012"}),
                 "声音":         (["off", "on"], {"default": "off"}),
                 "添加水印":     ("BOOLEAN", {"default": False}),
                 "回调地址":     ("STRING", {"default": ""}),
@@ -217,9 +250,9 @@ class KlingImage2Video:
             },
         }
 
-    def run(self, 模型名称, 提示词, 参考图1, 模式, 时长, 画面比例,
-            API令牌="", 参考图2="", 参考图3="", 参考图4="", 参考图5="",
-            声音="off", 添加水印=False,
+    def run(self, 提示词, 参考图1, 模式, 时长, 画面比例,
+            API令牌="", 模型名称="kling-video-o1", 参考图2="", 参考图3="", 参考图4="", 参考图5="",
+            元素ID列表="", 声音="off", 添加水印=False,
             回调地址="", 自定义任务ID="", 等待超时秒=600):
 
         image_list = [
@@ -230,10 +263,13 @@ class KlingImage2Video:
 
         payload = _base(模型名称, 模式, 添加水印)
         payload["prompt"]       = 提示词
-        payload["duration"]     = 时长
+        payload["duration"]     = str(时长)
         payload["aspect_ratio"] = 画面比例
         payload["sound"]        = 声音
         payload["image_list"]   = image_list
+
+        if 元素ID列表.strip():
+            payload["element_list"] = _parse_element_list(元素ID列表)
 
         _opt(payload, "callback_url",     回调地址.strip())
         _opt(payload, "external_task_id", 自定义任务ID.strip())
@@ -254,7 +290,6 @@ class KlingFrame2Video:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "模型名称": (MODELS,),
                 "提示词":   ("STRING", {"multiline": True, "default": ""}),
                 "首帧URL":  ("STRING", {"default": ""}),
                 "模式":     (MODES,),
@@ -262,7 +297,9 @@ class KlingFrame2Video:
             },
             "optional": {
                 "API令牌":      ("STRING", {"default": ""}),
+                "模型名称":     (MODELS,),
                 "尾帧URL":      ("STRING", {"default": ""}),
+                "元素ID列表":   ("STRING", {"default": "", "placeholder": "123456,789012"}),
                 "添加水印":     ("BOOLEAN", {"default": False}),
                 "回调地址":     ("STRING", {"default": ""}),
                 "自定义任务ID": ("STRING", {"default": ""}),
@@ -270,8 +307,8 @@ class KlingFrame2Video:
             },
         }
 
-    def run(self, 模型名称, 提示词, 首帧URL, 模式, 时长,
-            API令牌="", 尾帧URL="", 添加水印=False,
+    def run(self, 提示词, 首帧URL, 模式, 时长,
+            API令牌="", 模型名称="kling-video-o1", 尾帧URL="", 元素ID列表="", 添加水印=False,
             回调地址="", 自定义任务ID="", 等待超时秒=600):
 
         image_list = [{"image_url": 首帧URL.strip(), "type": "first_frame"}]
@@ -280,9 +317,12 @@ class KlingFrame2Video:
 
         payload = _base(模型名称, 模式, 添加水印)
         payload["prompt"]     = 提示词
-        payload["duration"]   = 时长
+        payload["duration"]   = str(时长)
         payload["image_list"] = image_list
         # aspect_ratio 由首帧尺寸决定，无需传入
+
+        if 元素ID列表.strip():
+            payload["element_list"] = _parse_element_list(元素ID列表)
 
         _opt(payload, "callback_url",     回调地址.strip())
         _opt(payload, "external_task_id", 自定义任务ID.strip())
@@ -303,8 +343,7 @@ class KlingVideoFeature:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "模型名称": (MODELS,),
-                "提示词":   ("STRING", {"multiline": True, "default": ""}),
+                "提示词":   ("STRING", {"multiline": True, "default": "参考<<<video_1>>>的运镜方式，生成一段视频"}),
                 "视频URL":  ("STRING", {"default": ""}),
                 "模式":     (MODES,),
                 "时长":     ("INT", _DUR_VID),
@@ -312,7 +351,14 @@ class KlingVideoFeature:
             },
             "optional": {
                 "API令牌":      ("STRING", {"default": ""}),
+                "模型名称":     (MODELS,),
                 "保留原声":     (["yes", "no"], {"default": "yes"}),
+                # 可附加图片/主体作为额外参考（用 <<<image_N>>> / <<<element_N>>> 在提示词中引用）
+                "参考图1":      ("STRING", {"default": ""}),
+                "参考图2":      ("STRING", {"default": ""}),
+                "参考图3":      ("STRING", {"default": ""}),
+                "参考图4":      ("STRING", {"default": ""}),
+                "元素ID列表":   ("STRING", {"default": "", "placeholder": "123456,789012"}),
                 "添加水印":     ("BOOLEAN", {"default": False}),
                 "回调地址":     ("STRING", {"default": ""}),
                 "自定义任务ID": ("STRING", {"default": ""}),
@@ -320,13 +366,15 @@ class KlingVideoFeature:
             },
         }
 
-    def run(self, 模型名称, 提示词, 视频URL, 模式, 时长, 画面比例,
-            API令牌="", 保留原声="yes", 添加水印=False,
+    def run(self, 提示词, 视频URL, 模式, 时长, 画面比例,
+            API令牌="", 模型名称="kling-video-o1", 保留原声="yes",
+            参考图1="", 参考图2="", 参考图3="", 参考图4="",
+            元素ID列表="", 添加水印=False,
             回调地址="", 自定义任务ID="", 等待超时秒=600):
 
         payload = _base(模型名称, 模式, 添加水印)
         payload["prompt"]       = 提示词
-        payload["duration"]     = 时长
+        payload["duration"]     = str(时长)
         payload["aspect_ratio"] = 画面比例
         payload["sound"]        = "off"  # 有 video_list 时 API 要求声音关闭
         payload["video_list"]   = [{
@@ -334,6 +382,17 @@ class KlingVideoFeature:
             "refer_type":          "feature",
             "keep_original_sound": 保留原声,
         }]
+
+        image_list = [
+            {"image_url": u.strip()}
+            for u in [参考图1, 参考图2, 参考图3, 参考图4]
+            if u and u.strip()
+        ]
+        if image_list:
+            payload["image_list"] = image_list
+
+        if 元素ID列表.strip():
+            payload["element_list"] = _parse_element_list(元素ID列表)
 
         _opt(payload, "callback_url",     回调地址.strip())
         _opt(payload, "external_task_id", 自定义任务ID.strip())
@@ -354,19 +413,20 @@ class KlingVideoEdit:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "模型名称": (MODELS,),
                 "提示词":   ("STRING", {"multiline": True, "default": ""}),
                 "视频URL":  ("STRING", {"default": ""}),
                 "模式":     (MODES,),
             },
             "optional": {
                 "API令牌":      ("STRING", {"default": ""}),
+                "模型名称":     (MODELS,),
                 "保留原声":     (["yes", "no"], {"default": "yes"}),
                 # 有参考视频时，参考图片数量之和不得超过 4
                 "参考图1":      ("STRING", {"default": ""}),
                 "参考图2":      ("STRING", {"default": ""}),
                 "参考图3":      ("STRING", {"default": ""}),
                 "参考图4":      ("STRING", {"default": ""}),
+                "元素ID列表":   ("STRING", {"default": "", "placeholder": "123456,789012"}),
                 "添加水印":     ("BOOLEAN", {"default": False}),
                 "回调地址":     ("STRING", {"default": ""}),
                 "自定义任务ID": ("STRING", {"default": ""}),
@@ -374,10 +434,10 @@ class KlingVideoEdit:
             },
         }
 
-    def run(self, 模型名称, 提示词, 视频URL, 模式,
-            API令牌="", 保留原声="yes",
+    def run(self, 提示词, 视频URL, 模式,
+            API令牌="", 模型名称="kling-video-o1", 保留原声="yes",
             参考图1="", 参考图2="", 参考图3="", 参考图4="",
-            添加水印=False, 回调地址="", 自定义任务ID="", 等待超时秒=600):
+            元素ID列表="", 添加水印=False, 回调地址="", 自定义任务ID="", 等待超时秒=600):
 
         payload = _base(模型名称, 模式, 添加水印)
         payload["prompt"] = 提示词
@@ -396,6 +456,9 @@ class KlingVideoEdit:
         ]
         if image_list:
             payload["image_list"] = image_list
+
+        if 元素ID列表.strip():
+            payload["element_list"] = _parse_element_list(元素ID列表)
 
         _opt(payload, "callback_url",     回调地址.strip())
         _opt(payload, "external_task_id", 自定义任务ID.strip())
