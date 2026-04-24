@@ -29,7 +29,7 @@ Documentation = "https://github.com/awsl1110/ComfyUI-KlingAI/wiki"
 "Bug Tracker" = "https://github.com/awsl1110/ComfyUI-KlingAI/issues"
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "wanest"
 DisplayName = "ComfyUI-KlingAI"
 Icon = ""
 includes = [] 
